@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ticket lottery wave simulation</title>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: #1a1a1a;
+      background: #f6f7f9;
+      line-height: 1.45;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 1200px;
+      padding: 1.25rem 1rem 3rem;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 650;
+      margin: 0 0 0.35rem;
+    }
+    .sub {
+      color: #555;
+      font-size: 0.95rem;
+      margin: 0 0 1.25rem;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 0.85rem 1.25rem;
+      background: #fff;
+      border: 1px solid #e2e5ea;
+      border-radius: 10px;
+      padding: 1rem 1.1rem;
+      margin-bottom: 1rem;
+    }
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      font-size: 0.88rem;
+      font-weight: 600;
+    }
+    input[type="range"] {
+      width: 100%;
+    }
+    .val {
+      font-weight: 500;
+      color: #333;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    button {
+      border: 1px solid #ccd2dc;
+      background: #fff;
+      border-radius: 8px;
+      padding: 0.45rem 0.85rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    button.primary {
+      background: #1f6feb;
+      border-color: #1f6feb;
+      color: #fff;
+      font-weight: 600;
+    }
+    button:hover {
+      filter: brightness(0.97);
+    }
+    .meta {
+      font-size: 0.92rem;
+      color: #444;
+      margin-bottom: 0.5rem;
+    }
+    .meta strong {
+      color: #111;
+    }
+    .wrap {
+      overflow-x: auto;
+      border: 1px solid #e2e5ea;
+      border-radius: 10px;
+      background: #fff;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 0.82rem;
+    }
+    th, td {
+      border-bottom: 1px solid #eceef2;
+      padding: 0.45rem 0.55rem;
+      text-align: right;
+      white-space: nowrap;
+    }
+    th:first-child, td:first-child {
+      text-align: left;
+    }
+    th {
+      background: #f0f2f6;
+      font-weight: 650;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    th[title] {
+      cursor: help;
+    }
+    th a.col-fn {
+      color: inherit;
+      text-decoration: none;
+      font-weight: inherit;
+    }
+    th a.col-fn sup {
+      font-size: 0.72em;
+      color: #1f6feb;
+      cursor: pointer;
+    }
+    tr:last-child td {
+      border-bottom: none;
+    }
+    .notes {
+      margin-top: 1rem;
+      font-size: 0.88rem;
+      color: #444;
+    }
+    .notes h2 {
+      font-size: 1rem;
+      margin: 0 0 0.4rem;
+    }
+    .notes ol {
+      margin: 0;
+      padding-left: 1.2rem;
+    }
+    .warn {
+      color: #a61b1b;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <h1>Ticket lottery wave simulation</h1>
+  <p class="sub">
+    Deterministic daily redemption, per-offer expiry, and new waves from remaining ticket headroom.
+    Adjust sliders until the table reads cleanly for your board deck.
+  </p>
+
+  <div class="controls" id="controls">
+    <label>
+      Target tickets
+      <input id="targetTickets" type="range" min="100" max="10000" step="50" value="1000" />
+      <span class="val" id="targetTicketsVal">1000</span>
+    </label>
+    <label>
+      Initial offers (blank = target ÷ 2)
+      <input id="initialOffers" type="number" min="0" max="5000" step="1" placeholder="auto" />
+      <span class="val" id="initialOffersHint">auto → 500</span>
+    </label>
+    <label>
+      Redemption rate (daily share of outstanding)
+      <input id="redemptionRate" type="range" min="50" max="99" step="1" value="80" />
+      <span class="val" id="redemptionRateVal">80% (rounded down)</span>
+    </label>
+    <label>
+      Two-ticket share among redeemers
+      <input id="twoShare" type="range" min="50" max="99" step="1" value="80" />
+      <span class="val" id="twoShareVal">80% (rounded down)</span>
+    </label>
+    <label>
+      Offer validity (consecutive days, incl. issue day)
+      <input id="validDays" type="range" min="2" max="14" step="1" value="5" />
+      <span class="val" id="validDaysVal">5</span>
+    </label>
+    <label>
+      Max simulated days (safety cap)
+      <input id="maxDays" type="range" min="50" max="2000" step="50" value="500" />
+      <span class="val" id="maxDaysVal">500</span>
+    </label>
+  </div>
+
+  <div class="actions">
+    <button type="button" class="primary" id="rerun">Apply / rerun</button>
+    <button type="button" id="exportCsv">Download CSV</button>
+    <span class="meta" id="summary"></span>
+  </div>
+
+  <div class="meta" id="status"></div>
+  <p class="meta" id="expiryHint" style="margin-top: -0.35rem"></p>
+
+  <div class="wrap">
+    <table id="grid" aria-label="Simulation by day">
+      <thead>
+        <tr>
+          <th
+            scope="col"
+            title="Simulation calendar day. Day 1 is the first day of the schedule."
+          >
+            Day
+          </th>
+          <th
+            scope="col"
+            title="Offers removed at the start of this day because their validity window ended before any redemption. Each unit is one offer that never converted—like an invitation that timed out."
+          >
+            Expired
+          </th>
+          <th
+            scope="col"
+            title="Count of live (non-expired) offers in the pool at the beginning of this day, before removing expirations or redeeming."
+          >
+            Out (start)
+          </th>
+          <th
+            scope="col"
+            title="How many offers are redeemed today. Each redemption consumes exactly one offer, whether the guest buys one ticket or two."
+          >
+            Redeem
+          </th>
+          <th
+            scope="col"
+            title="Among today’s redeemers, how many checked out with exactly one ticket."
+          >
+            1-ticket
+          </th>
+          <th
+            scope="col"
+            title="Among today’s redeemers, how many checked out with two tickets."
+          >
+            2-ticket
+          </th>
+          <th
+            scope="col"
+            title="Tickets sold today: one ticket per 1-ticket redeemer plus two tickets per 2-ticket redeemer."
+          >
+            Tickets / day
+          </th>
+          <th
+            scope="col"
+            title="Running total of tickets sold through the end of this day."
+          >
+            Σ Tickets
+          </th>
+          <th scope="col" title="After today’s redemptions and before issuing new offers: cumulative tickets sold plus 2 × outstanding offers. This is a conservative upper bound on eventual ticket sales if every remaining offer later redeems for two tickets—the same figure used to compute gap. See note (a) below.">
+            <a class="col-fn" href="#fn-ceiling"
+              >Ceiling tickets<sup>a</sup></a
+            >
+          </th>
+          <th
+            scope="col"
+            title="Target tickets minus ceiling tickets: how much headroom is still missing under the conservative model before adding new offers today."
+          >
+            Gap
+          </th>
+          <th
+            scope="col"
+            title="New offers added at the end of today after gap math (gap ÷ 2 rounded down, plus the one-off remainder rule when gap is small)."
+          >
+            New offers
+          </th>
+          <th
+            scope="col"
+            title="Live offers left after today’s redemptions and new issuance—the pool carried into tomorrow."
+          >
+            Out (end)
+          </th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="notes">
+    <h2>Notes</h2>
+    <ol>
+      <li>
+        <strong>Rounding</strong>: Redemption count is <strong>r × outstanding, rounded down</strong> to a whole number. Split among redeemers uses
+        <strong>s × redeemers, rounded down</strong> for two-ticket buyers; the rest are one-ticket buyers. New offers issued from gap headroom use
+        <strong>gap ÷ 2, rounded down</strong>. When that value is 0 but gap is still positive (typically a single ticket of headroom), the model issues
+        <strong>one</strong> offer so the run can finish—acceptable remainder slack for integer rounding.
+      </li>
+      <li id="fn-expiry">
+        <strong>Expiry and the Expired column</strong>: An offer issued on day <em>d</em> is valid through day
+        <em>d + validity − 1</em> (validity consecutive days, including issue day). At the start of each day, offers past that window drop into
+        <strong>Expired</strong>. With high daily redemption and redeeming soonest-to-expire offers first, many runs never show expirations—the queue clears before offers age out. Lower the redemption slider (or shorten validity) to see nonzero Expired counts.
+      </li>
+      <li id="fn-ceiling">
+        <strong>(a) Ceiling tickets</strong>: Computed <em>after</em> today’s redemptions and <em>before</em> new offers:
+        <code>ceiling = cumulative tickets sold + 2 × (outstanding offers remaining)</code>. Counting each remaining offer as two tickets is the conservative “worst case” used so new waves do not oversell. <strong>Gap</strong> = target − ceiling; new offers come from gap (gap ÷ 2 rounded down; see rounding note).
+      </li>
+      <li>
+        <strong>Small pools</strong>: If <strong>r × n rounded down</strong> is 0 while offers remain (e.g., <em>n</em> = 1), redemption is bumped to <strong>1</strong> so the deterministic schedule does not deadlock.
+      </li>
+    </ol>
+  </div>
+
+  <script>
+    function floorPct(rate, n) {
+      if (n <= 0) return 0;
+      return Math.floor(rate * n);
+    }
+
+    function simulate(params) {
+      const target = params.targetTickets;
+      const redemptionRate = params.redemptionRate;
+      const twoShare = params.twoShare;
+      const validDays = params.validDays;
+      const maxDays = params.maxDays;
+      let offers = [];
+      const initial =
+        params.initialOffers != null && params.initialOffers > 0
+          ? params.initialOffers
+          : Math.floor(target / 2);
+      for (let i = 0; i < initial; i++) offers.push(1);
+
+      let cumulativeSold = 0;
+      const rows = [];
+      let stopped = "max_days";
+
+      const lastValidDay = (issue) => issue + validDays - 1;
+
+      for (let day = 1; day <= maxDays; day++) {
+        const outstandingStart = offers.length;
+
+        let expiredRemoved = 0;
+        const kept = [];
+        for (const issue of offers) {
+          if (day <= lastValidDay(issue)) kept.push(issue);
+          else expiredRemoved++;
+        }
+        offers = kept;
+
+        const nOut = offers.length;
+        let redeemOffers = Math.min(nOut, floorPct(redemptionRate, nOut));
+        if (nOut > 0 && redeemOffers === 0) redeemOffers = 1;
+
+        const idxSorted = offers.map((issue, i) => ({
+          i,
+          issue,
+          last: lastValidDay(issue),
+        }));
+        idxSorted.sort((a, b) => (a.last - b.last) || (a.issue - b.issue) || (a.i - b.i));
+        const redeemSet = new Set(idxSorted.slice(0, redeemOffers).map((x) => x.i));
+        const newPool = offers.filter((_, i) => !redeemSet.has(i));
+
+        const twoBuy = floorPct(twoShare, redeemOffers);
+        const oneBuy = redeemOffers - twoBuy;
+        const ticketsDay = 2 * twoBuy + oneBuy;
+        cumulativeSold += ticketsDay;
+
+        const maxAfter = cumulativeSold + 2 * newPool.length;
+        let gap = target - maxAfter;
+        let newOffers = gap > 0 ? Math.floor(gap / 2) : 0;
+        if (gap > 0 && newOffers === 0) newOffers = 1;
+        for (let k = 0; k < newOffers; k++) newPool.push(day);
+        offers = newPool;
+
+        rows.push({
+          day,
+          expiredRemoved,
+          outstandingStart,
+          redeemOffers,
+          oneBuy,
+          twoBuy,
+          ticketsDay,
+          cumulativeSold,
+          maxAfter,
+          gap,
+          newOffers,
+          outstandingEnd: offers.length,
+        });
+
+        if (cumulativeSold >= target) {
+          stopped = "target_reached";
+          break;
+        }
+        if (redeemOffers === 0 && newOffers === 0 && offers.length === 0) {
+          stopped = "deadlock_no_offers";
+          break;
+        }
+      }
+
+      return {
+        rows,
+        meta: {
+          stopped,
+          initialOffers: initial,
+          targetTickets: target,
+        },
+      };
+    }
+
+    const tbody = document.querySelector("#grid tbody");
+    const summaryEl = document.getElementById("summary");
+    const statusEl = document.getElementById("status");
+
+    function readParams() {
+      const targetTickets = Number(document.getElementById("targetTickets").value);
+      const rawInit = document.getElementById("initialOffers").value;
+      const initialOffers =
+        rawInit === "" || rawInit === null ? null : Math.max(0, Number(rawInit));
+      const redemptionRate = Number(document.getElementById("redemptionRate").value) / 100;
+      const twoShare = Number(document.getElementById("twoShare").value) / 100;
+      const validDays = Number(document.getElementById("validDays").value);
+      const maxDays = Number(document.getElementById("maxDays").value);
+      return {
+        targetTickets,
+        initialOffers,
+        redemptionRate,
+        twoShare,
+        validDays,
+        maxDays,
+      };
+    }
+
+    function render() {
+      const p = readParams();
+      document.getElementById("targetTicketsVal").textContent = String(p.targetTickets);
+      document.getElementById("redemptionRateVal").textContent =
+        `${document.getElementById("redemptionRate").value}% (rounded down)`;
+      document.getElementById("twoShareVal").textContent =
+        `${document.getElementById("twoShare").value}% (rounded down)`;
+      document.getElementById("validDaysVal").textContent = String(p.validDays);
+      document.getElementById("maxDaysVal").textContent = String(p.maxDays);
+      const autoInit = Math.floor(p.targetTickets / 2);
+      document.getElementById("initialOffersHint").textContent =
+        p.initialOffers == null ? `auto → ${autoInit}` : `manual override`;
+
+      const { rows, meta } = simulate(p);
+      tbody.innerHTML = "";
+      for (const r of rows) {
+        const tr = document.createElement("tr");
+        const cells = [
+          r.day,
+          r.expiredRemoved,
+          r.outstandingStart,
+          r.redeemOffers,
+          r.oneBuy,
+          r.twoBuy,
+          r.ticketsDay,
+          r.cumulativeSold,
+          r.maxAfter,
+          r.gap,
+          r.newOffers,
+          r.outstandingEnd,
+        ];
+        for (const c of cells) {
+          const td = document.createElement("td");
+          td.textContent = String(c);
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+
+      const last = rows[rows.length - 1];
+      const tail =
+        last != null
+          ? `Last day ${last.day}: cumulative tickets sold = ${last.cumulativeSold} (target ${meta.targetTickets}).`
+          : "No rows.";
+
+      summaryEl.innerHTML = `
+        <strong>Stop reason</strong>: ${meta.stopped} ·
+        <strong>Initial offers</strong>: ${meta.initialOffers}
+      `;
+
+      let warn = "";
+      if (meta.stopped !== "target_reached") {
+        warn = `<span class="warn"> Did not reach ticket target — adjust parameters or raise max days.</span>`;
+      }
+      statusEl.innerHTML = `${tail}${warn}`;
+
+      const expiryHintEl = document.getElementById("expiryHint");
+      if (expiryHintEl) {
+        const expiredTotal = rows.reduce((s, r) => s + r.expiredRemoved, 0);
+        if (rows.length === 0) {
+          expiryHintEl.innerHTML = "";
+        } else if (expiredTotal === 0) {
+          expiryHintEl.innerHTML =
+            `<strong>Expired column:</strong> Every row is 0 here — offers are redeemed before they age out at these settings (high redemption plus soonest-expiry-first). Lower <strong>Redemption rate</strong> to see expired offers accumulate. <a href="#fn-expiry">Expiry note</a>.`;
+        } else {
+          expiryHintEl.innerHTML =
+            `<strong>Expired column:</strong> ${expiredTotal} offer(s) timed out without redemption in this run (column sum). <a href="#fn-expiry">Expiry note</a>.`;
+        }
+      }
+
+      window.__lastSim = { rows, meta, params: p };
+    }
+
+    function exportCsv() {
+      const pack = window.__lastSim;
+      if (!pack) return;
+      const header = [
+        "day",
+        "expired_removed",
+        "outstanding_start",
+        "redeem_offers",
+        "redeemed_1_ticket",
+        "redeemed_2_ticket",
+        "tickets_sold_day",
+        "cumulative_tickets_sold",
+        "ceiling_tickets_after_redemptions",
+        "gap_before_issue",
+        "new_offers_issued",
+        "outstanding_end",
+      ];
+      const lines = [header.join(",")];
+      for (const r of pack.rows) {
+        lines.push(
+          [
+            r.day,
+            r.expiredRemoved,
+            r.outstandingStart,
+            r.redeemOffers,
+            r.oneBuy,
+            r.twoBuy,
+            r.ticketsDay,
+            r.cumulativeSold,
+            r.maxAfter,
+            r.gap,
+            r.newOffers,
+            r.outstandingEnd,
+          ].join(",")
+        );
+      }
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "lottery_simulation.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    document.querySelectorAll("#controls input").forEach((el) => {
+      el.addEventListener("input", render);
+    });
+    document.getElementById("rerun").addEventListener("click", render);
+    document.getElementById("exportCsv").addEventListener("click", exportCsv);
+    render();
+  </script>
+</body>
+</html>
